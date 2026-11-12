@@ -1,0 +1,22 @@
+# Solo para desarrollo local. El despliegue real (docker-compose por nodo EC2)
+# vive en el repositorio paraguas.
+#
+# Terceros no tiene base de datos: este archivo levanta un unico contenedor.
+# Las variables de simulacion se declaran con default para poder sobreescribir
+# una sola desde el shell, p. ej.:
+#   SIMULAR_CAIDA_OPEN_DATA=true docker compose -f docker-compose.local.yml up -d
+services:
+  terceros:
+    build: .
+    container_name: terceros
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      SIMULAR_CAIDA_KYC: "${SIMULAR_CAIDA_KYC:-false}"
+      SIMULAR_CAIDA_OPEN_DATA: "${SIMULAR_CAIDA_OPEN_DATA:-false}"
+      SIMULAR_CAIDA_PAGOS: "${SIMULAR_CAIDA_PAGOS:-false}"
+      SIMULAR_LATENCIA_MIN_MS: "${SIMULAR_LATENCIA_MIN_MS:-200}"
+      SIMULAR_LATENCIA_MAX_MS: "${SIMULAR_LATENCIA_MAX_MS:-800}"
+    ports:
+      - "3007:3000"
