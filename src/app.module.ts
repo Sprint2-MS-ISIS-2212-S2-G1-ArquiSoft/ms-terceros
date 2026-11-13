@@ -4,11 +4,9 @@ import { HealthModule } from './health/health.module';
 import { KycModule } from './kyc/kyc.module';
 import { OpenDataModule } from './open-data/open-data.module';
 import { PagosModule } from './pagos/pagos.module';
+import { SimulacionModule } from './simulacion/simulacion.module';
 
-/**
- * Terceros es un servicio sin estado: no hay TypeOrmModule porque no tiene
- * base de datos (ver CLAUDE.md, "Base de datos: Sin base de datos").
- */
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -19,6 +17,7 @@ import { PagosModule } from './pagos/pagos.module';
     KycModule,
     OpenDataModule,
     PagosModule,
+    SimulacionModule,
   ],
 })
 export class AppModule {}

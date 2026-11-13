@@ -11,6 +11,6 @@ import { Simulador } from './simulador';
  */
 @Module({
   providers: [Simulador, KycAdapter, OpenDataAdapter, PagosAdapter],
-  exports: [KycAdapter, OpenDataAdapter, PagosAdapter],
+  exports: [Simulador, KycAdapter, OpenDataAdapter, PagosAdapter],
 })
 export class ProveedoresModule {}

@@ -5,52 +5,77 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-/** Nombre legible de cada proveedor externo, tal como aparece en los 503. */
+
 export enum Proveedor {
   KYC = 'KYC',
   OPEN_DATA = 'Open Data',
   PAGOS = 'Pagos',
 }
 
-/** Variable de entorno que simula la caida de cada proveedor. */
+
 const VARIABLE_CAIDA: Record<Proveedor, string> = {
   [Proveedor.KYC]: 'SIMULAR_CAIDA_KYC',
   [Proveedor.OPEN_DATA]: 'SIMULAR_CAIDA_OPEN_DATA',
   [Proveedor.PAGOS]: 'SIMULAR_CAIDA_PAGOS',
 };
 
+
+export type ModoSimulacion = 'normal' | 'caido' | 'lento';
+
+const LATENCIA_LENTA_MS_DEFAULT = 2000;
+
 const LATENCIA_MIN_MS_DEFAULT = 200;
 const LATENCIA_MAX_MS_DEFAULT = 800;
 
-/** Probabilidad de fallo aleatorio del monolito: 0.01 % (1 en 10 000). */
+
 const PROBABILIDAD_FALLO = 0.0001;
 
-/**
- * Simulador compartido de los proveedores externos.
- *
- * Copia la logica de TercerosService.simulateNetworkCall() del monolito: una
- * latencia aleatoria y un fallo aleatorio del 0.01 %. Eso es comportamiento
- * del proveedor, no tactica: el circuit breaker (opossum), los reintentos y
- * el backoff exponencial que el monolito tenia alrededor NO se migran, son
- * tacticas del ASR de Terceros y van en su propia rama.
- *
- * La latencia es configurable (SIMULAR_LATENCIA_MIN_MS / _MAX_MS) para poder
- * medir experimentos sin la espera; con los defaults 200/800 el rango es
- * identico al del monolito.
- */
+
 @Injectable()
 export class Simulador {
   private readonly logger = new Logger(Simulador.name);
 
+
+  private readonly modos = new Map<Proveedor, ModoSimulacion>();
+  private latenciaLentaMs = LATENCIA_LENTA_MS_DEFAULT;
+
   constructor(private readonly config: ConfigService) {}
 
-  /**
-   * Ejecuta la llamada simulada a un proveedor y devuelve su respuesta.
-   *
-   * @param proveedor proveedor externo que se simula
-   * @param accion nombre de la operacion, solo para los logs
-   * @param respuesta payload que el proveedor devuelve (ya decidido por el adaptador)
-   */
+ 
+  fijarModo(
+    proveedor: Proveedor,
+    modo: ModoSimulacion,
+    latenciaLentaMs?: number,
+  ): void {
+    this.modos.set(proveedor, modo);
+    if (latenciaLentaMs !== undefined) {
+      this.latenciaLentaMs = latenciaLentaMs;
+    }
+    this.logger.warn(
+      `[SIMULACION] ${proveedor} pasa a modo ${modo}` +
+        (modo === 'lento' ? ` (${this.latenciaLentaMs} ms)` : ''),
+    );
+  }
+
+
+  estado(): Record<string, ModoSimulacion> {
+    const resultado: Record<string, ModoSimulacion> = {};
+    for (const proveedor of Object.values(Proveedor)) {
+      resultado[proveedor] = this.modoDe(proveedor);
+    }
+    return resultado;
+  }
+
+  private modoDe(proveedor: Proveedor): ModoSimulacion {
+    const fijado = this.modos.get(proveedor);
+    if (fijado) {
+      return fijado;
+    }
+    return this.config.get<string>(VARIABLE_CAIDA[proveedor]) === 'true'
+      ? 'caido'
+      : 'normal';
+  }
+
   async llamar<T>(
     proveedor: Proveedor,
     accion: string,
@@ -58,7 +83,10 @@ export class Simulador {
   ): Promise<T> {
     this.verificarDisponibilidad(proveedor);
 
-    const demora = this.calcularLatencia();
+    const demora =
+      this.modoDe(proveedor) === 'lento'
+        ? this.latenciaLentaMs
+        : this.calcularLatencia();
     if (demora > 0) {
       await new Promise((resolve) => setTimeout(resolve, demora));
     }
@@ -78,12 +106,9 @@ export class Simulador {
     return respuesta;
   }
 
-  /**
-   * Corta la llamada con 503 si la caida del proveedor esta simulada.
-   * Es el estimulo del experimento, no una tactica de resiliencia.
-   */
+
   private verificarDisponibilidad(proveedor: Proveedor): void {
-    if (this.config.get<string>(VARIABLE_CAIDA[proveedor]) === 'true') {
+    if (this.modoDe(proveedor) === 'caido') {
       this.logger.warn(`Caida simulada del proveedor ${proveedor}`);
       throw new ServiceUnavailableException(
         `Proveedor ${proveedor} no disponible`,
@@ -91,10 +116,6 @@ export class Simulador {
     }
   }
 
-  /**
-   * Latencia aleatoria dentro del rango configurado, en milisegundos.
-   * Con min=200 y max=800 equivale al Math.random() * 600 + 200 del monolito.
-   */
   private calcularLatencia(): number {
     const min = this.leerMilisegundos(
       'SIMULAR_LATENCIA_MIN_MS',
@@ -110,7 +131,6 @@ export class Simulador {
     return min + Math.floor(Math.random() * (max - min + 1));
   }
 
-  /** Lee una variable de latencia; un valor no numerico o negativo usa el default. */
   private leerMilisegundos(variable: string, porDefecto: number): number {
     const valor = Number(this.config.get<string>(variable));
     if (!Number.isFinite(valor) || valor < 0) {
